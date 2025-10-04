@@ -92,7 +92,8 @@ const LOCATIONS = ['storeRoom','frail','catering','kefi','frailFoh']
 
 // --- In-memory data ---
 let stock = { storeRoom: {}, frail: {}, catering: {}, kefi: {}, frailFoh: {} }
-let recipes = {} // Storage for recipes
+// NOTE: Recipe structure now includes a 'servings' key for base calculation
+let recipes = {} 
 
 // --- Helper ---
 function $(id){ return document.getElementById(id) }
@@ -107,7 +108,7 @@ function locationLabel(id){
     }
 }
 
-// --- Recipe Parsing Function ---
+// --- Recipe Parsing Function (UPDATED) ---
 function parseSimpleRecipe(text){
     const ingredientList = {}
     const lines = text.split('\n').filter(line => line.trim() !== '')
@@ -118,11 +119,6 @@ function parseSimpleRecipe(text){
         if(match){
             let qty = parseFloat(match[1].replace(',', '.')) 
             let itemText = match[4].trim()
-            
-            // Item name cleanup: Remove common leading/trailing units if they make sense to group
-            // For robust stock matching, it's best if the user's stock items exactly match recipe items.
-            // E.g., if you stock "Salt", then recipe should say "5 Salt", not "5ml Salt".
-            // For now, we'll take the itemText as-is after the number.
             let itemName = itemText
             ingredientList[itemName] = (ingredientList[itemName] || 0) + qty
         } else {
@@ -154,15 +150,15 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
         document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'))
         $(target).classList.remove('hidden')
         document.querySelectorAll('.tab-btn').forEach(b=>{
-            b.classList.remove('bg-indigo-600','text-white') // Remove old active styles
-            b.classList.add('bg-gray-200','text-gray-700') // Add inactive styles
+            b.classList.remove('bg-indigo-600','text-white') 
+            b.classList.add('bg-gray-200','text-gray-700') 
         })
-        btn.classList.remove('bg-gray-200','text-gray-700') // Remove inactive styles from active tab
-        btn.classList.add('bg-indigo-600','text-white') // Add new active styles
+        btn.classList.remove('bg-gray-200','text-gray-700') 
+        btn.classList.add('bg-indigo-600','text-white') 
     })
 })
 
-// --- Supabase functions ---
+// --- Supabase functions (omitted for brevity, they remain the same) ---
 async function fetchStock(){
     for(const loc of LOCATIONS){
         const { data, error } = await supabase.from('stock').select('*').eq('location', loc)
@@ -185,7 +181,7 @@ async function addStock(location, item, qty){
     renderLowStock()
 }
 
-// --- Rendering ---
+// --- Rendering (omitted for brevity, they remain the same) ---
 function renderStockUI(location){
     const mapping = { storeRoom:'srList', frail:'frailStock', catering:'cateringStock', kefi:'kefiStock', frailFoh:'frailFohStock' }
     const ul = $(mapping[location])
@@ -217,21 +213,44 @@ function renderLowStock(){
     }
 }
 
-function renderShoppingList(recipeName){
-    const list = $('shoppingList')
-    list.innerHTML = ''
+// --- Core Scaling Logic (UPDATED) ---
+function renderLists(recipeName){
+    const prepList = $('prepList')
+    const shoppingList = $('shoppingList')
+    prepList.innerHTML = '';
+    shoppingList.innerHTML = '';
+    
     const recipe = recipes[recipeName]
+    const targetServings = Number($('targetServings').value) || 1; // Default to 1 if empty/invalid
+
     if (!recipe) {
-        list.textContent = 'Select a recipe to generate a list.'
+        prepList.textContent = 'Select a recipe to see its required ingredients.';
+        shoppingList.textContent = 'Select a recipe to generate a list.';
         return
+    }
+    
+    const scaleFactor = targetServings / recipe.baseServings;
+    if (scaleFactor <= 0) {
+        prepList.textContent = 'Invalid serving number or recipe base servings.';
+        shoppingList.textContent = 'Invalid serving number or recipe base servings.';
+        return;
     }
 
     const neededItems = []
     const storeRoomStock = stock.storeRoom || {}
 
-    for(const [item, requiredQty] of Object.entries(recipe)){
+    // 1. Generate Prep List (Scaled Requirements)
+    for(const [item, requiredQty] of Object.entries(recipe.ingredients)){
+        const scaledQty = requiredQty * scaleFactor;
+        
+        // Add to Prep List UI
+        const prepLi = document.createElement('li')
+        prepLi.textContent = `${item}: ${scaledQty.toFixed(1)}` // .toFixed(1) for cleaner display
+        prepList.appendChild(prepLi)
+
+        // 2. Calculate Shopping Deficit
         const availableQty = storeRoomStock[item] || 0
-        const deficit = requiredQty - availableQty
+        const deficit = scaledQty - availableQty
         
         if(deficit > 0){
             neededItems.push({
@@ -241,27 +260,29 @@ function renderShoppingList(recipeName){
         }
     }
 
+    // 3. Generate Shopping List UI
     if(neededItems.length > 0){
         neededItems.forEach(i => {
-            const li = document.createElement('li')
-            li.textContent = `${i.item}: Need ${i.needed}`
-            list.appendChild(li)
+            const shopLi = document.createElement('li')
+            shopLi.textContent = `${i.item}: Need ${i.needed.toFixed(1)}`
+            shoppingList.appendChild(shopLi)
         })
     } else {
-        list.textContent = `You have all the ingredients for ${recipeName} in the Store Room!`
+        shoppingList.textContent = `You have all the ingredients for ${recipeName} (${targetServings} servings) in the Store Room!`
     }
 }
 
 
-// --- Recipe Management Handlers ---
+// --- Recipe Management Handlers (UPDATED) ---
 $('simpleRecipeUploadBtn')?.addEventListener('click', ()=>{
     const name = $('simpleRecipeName').value.trim()
     const text = $('simpleRecipeTextarea').value.trim()
+    const baseServings = Number($('baseServings').value)
     const message = $('recipeMessage')
     message.textContent = ''
     
-    if(!name || !text) {
-        message.textContent = 'Error: Enter a recipe name and ingredients.'
+    if(!name || !text || baseServings <= 0) {
+        message.textContent = 'Error: Enter a recipe name, ingredients, and a valid base serving number.'
         message.classList.remove('text-green-600'); message.classList.add('text-red-600');
         return
     }
@@ -274,34 +295,32 @@ $('simpleRecipeUploadBtn')?.addEventListener('click', ()=>{
         return
     }
 
-    recipes[name] = newRecipeItems
+    // Store the recipe with its base serving size
+    recipes[name] = {
+        baseServings: baseServings,
+        ingredients: newRecipeItems
+    }
     
     populateRecipeSelect()
-    message.textContent = `Successfully added/updated recipe: ${name}.`
+    message.textContent = `Successfully added/updated recipe: ${name} (Base: ${baseServings} servings).`
     message.classList.remove('text-red-600'); message.classList.add('text-green-600');
     $('simpleRecipeName').value = ''
     $('simpleRecipeTextarea').value = ''
+    $('baseServings').value = '1' // Reset servings input
 })
 
+// Trigger list re-render on selection change
 $('recipeSelect')?.addEventListener('change', (e)=>{
-    const recipeName = e.target.value
-    renderShoppingList(recipeName)
-    const prepList = $('prepList')
-    prepList.innerHTML = ''
-    const recipe = recipes[recipeName]
-    if(recipe){
-        Object.entries(recipe).forEach(([item, qty]) => {
-            const li = document.createElement('li')
-            li.textContent = `${item}: ${qty}`
-            prepList.appendChild(li)
-        })
-    } else {
-        prepList.textContent = 'Select a recipe to see its required ingredients.'
-    }
+    renderLists(e.target.value)
+})
+
+// Trigger list re-render on serving size change
+$('targetServings')?.addEventListener('input', (e)=>{
+    renderLists($('recipeSelect').value)
 })
 
 
-// --- Transfer ---
+// --- Transfer (omitted for brevity, remains the same) ---
 $('transferBtn')?.addEventListener('click', async ()=>{
     const from = $('transferFrom').value
     const to = $('transferTo').value
@@ -316,17 +335,17 @@ $('transferBtn')?.addEventListener('click', async ()=>{
     await addStock(from, item, -qty)
     $('transferMessage').textContent = `Transferred ${qty} ${item} from ${locationLabel(from)} to ${locationLabel(to)}`
     $('transferItem').value=''; $('transferQty').value=''
-    renderShoppingList($('recipeSelect').value)
+    renderLists($('recipeSelect').value)
 })
 
-// --- Store Room Add ---
+// --- Store Room Add (omitted for brevity, remains the same) ---
 $('srAdd')?.addEventListener('click', async ()=>{
     const item = $('srItem').value.trim()
     const qty = Number($('srQty').value)
     if(!item || isNaN(qty)){ alert('Enter item and qty'); return }
     await addStock('storeRoom', item, qty)
     $('srItem').value=''; $('srQty').value=''
-    renderShoppingList($('recipeSelect').value)
+    renderLists($('recipeSelect').value)
 })
 
 // --- On load ---
@@ -336,7 +355,8 @@ fetchStock()
 </script>
 </head>
 <body class="bg-gray-100 p-2 min-h-screen">
-<div class="max-w-2xl mx-auto py-4"> <h1 class="text-3xl sm:text-4xl font-extrabold mb-6 text-center text-gray-800">Kitchen Stock Manager</h1>
+<div class="max-w-2xl mx-auto py-4"> 
+<h1 class="text-3xl sm:text-4xl font-extrabold mb-6 text-center text-gray-800">Kitchen Stock Manager</h1>
 
 <div class="flex flex-wrap gap-2 justify-center mb-6 px-2">
 <button class="tab-btn px-4 py-2 bg-indigo-600 text-white rounded-lg text-base" data-target="storeRoom">Store Room</button>
@@ -352,23 +372,30 @@ fetchStock()
 <div id="recipes" class="page hidden">
 <h2 class="font-bold mb-4 text-xl sm:text-2xl">Recipe Management</h2>
 
-<h3 class="font-semibold mt-2 text-lg">Add New Recipe (Simple List) 📝</h3>
+<h3 class="font-semibold mt-2 text-lg">Add New Recipe 📝</h3>
+
+<div class="flex gap-3 mb-3">
+    <input id="simpleRecipeName" placeholder="Recipe Name" class="p-2 border rounded-md flex-1 focus:ring-2 focus:ring-blue-300 focus:border-blue-500">
+    <input id="baseServings" type="number" value="1" min="1" placeholder="Base Servings" class="p-2 border rounded-md w-32 focus:ring-2 focus:ring-blue-300 focus:border-blue-500">
+</div>
 <p class="text-sm text-gray-600 mb-3">
-    Enter a name and then list ingredients, each starting with a quantity (e.g., **5 tomato**, **2.5 onion**, **5ml salt**).
+    List ingredients below, each starting with a quantity. (Base Servings is the amount this list makes).
 </p>
-<input id="simpleRecipeName" placeholder="Recipe Name (e.g., 'Spaghetti Bolognese')" class="p-2 border rounded-md w-full mb-2 focus:ring-2 focus:ring-blue-300 focus:border-blue-500">
 <textarea id="simpleRecipeTextarea" rows="6" placeholder='Paste your ingredients here...
 e.g.
 5 tomato
 2 onion
-5ml salt
-1kg ground beef' 
+5ml salt' 
 class="p-2 border rounded-md w-full mb-3 focus:ring-2 focus:ring-blue-300 focus:border-blue-500"></textarea>
 <button id="simpleRecipeUploadBtn" class="btn-purple text-white px-4 py-2 rounded-md w-full font-semibold">Add/Update Recipe</button>
 <div id="recipeMessage" class="text-green-600 text-sm mt-3 font-medium"></div>
 
 <h3 class="font-semibold mt-6 text-lg">Generate Lists</h3>
-<select id="recipeSelect" class="p-2 border rounded-md w-full mb-5 focus:ring-2 focus:ring-blue-300 focus:border-blue-500"></select>
+<div class="flex gap-3 mb-4">
+    <select id="recipeSelect" class="p-2 border rounded-md flex-1 focus:ring-2 focus:ring-blue-300 focus:border-blue-500"></select>
+    <input id="targetServings" type="number" value="1" min="1" placeholder="# People" class="p-2 border rounded-md w-32 focus:ring-2 focus:ring-blue-300 focus:border-blue-500">
+</div>
+
 
 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
     <div>
