@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kitchen Stock Manager — Supabase</title>
+<title>Kitchen Stock Manager — Mobile</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
@@ -18,8 +18,6 @@ const LOCATIONS = ['storeRoom','frail','catering','kefi','frailFoh']
 
 // --- In-memory data ---
 let stock = { storeRoom: {}, frail: {}, catering: {}, kefi: {}, frailFoh: {} }
-let recipes = { frail: [], catering: [], kefi: [], frailFoh: [] }
-let menu = { frail: [], catering: [], kefi: [], frailFoh: [] }
 
 // --- Helper ---
 function $(id){ return document.getElementById(id) }
@@ -56,7 +54,6 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 })
 
 // --- Supabase functions ---
-// Fetch all stock
 async function fetchStock(){
     for(const loc of LOCATIONS){
         const { data, error } = await supabase.from('stock').select('*').eq('location', loc)
@@ -68,11 +65,10 @@ async function fetchStock(){
     renderLowStock()
 }
 
-// Add or update stock
 async function addStock(location, item, qty){
     const existing = stock[location][item] || 0
     const newQty = existing + qty
-    const { data, error } = await supabase.from('stock').upsert([{ location, item, qty: newQty }])
+    const { error } = await supabase.from('stock').upsert([{ location, item, qty: newQty }])
     if(error) console.error(error)
     stock[location][item] = newQty
     renderStockUI(location)
@@ -93,7 +89,6 @@ function renderStockUI(location){
     })
 }
 
-// --- Low stock / shopping list ---
 function renderLowStock(){
     const container = $('lowStockList')
     container.innerHTML = ''
@@ -113,7 +108,7 @@ function renderLowStock(){
 }
 
 // --- Transfer ---
-$('transferBtn').addEventListener('click', async ()=>{
+$('transferBtn')?.addEventListener('click', async ()=>{
     const from = $('transferFrom').value
     const to = $('transferTo').value
     const item = $('transferItem').value.trim()
@@ -129,7 +124,7 @@ $('transferBtn').addEventListener('click', async ()=>{
 })
 
 // --- Store Room Add ---
-$('srAdd').addEventListener('click', async ()=>{
+$('srAdd')?.addEventListener('click', async ()=>{
     const item = $('srItem').value.trim()
     const qty = Number($('srQty').value)
     if(!item || isNaN(qty)){ alert('Enter item and qty'); return }
@@ -143,28 +138,29 @@ fetchStock()
 
 </script>
 </head>
-<body class="bg-gray-100 p-4 min-h-screen">
-<div class="max-w-4xl mx-auto">
-<h1 class="text-3xl font-bold mb-4 text-center">Kitchen Stock Manager — Supabase</h1>
+<body class="bg-gray-100 p-2 min-h-screen">
+<div class="max-w-2xl mx-auto">
+<h1 class="text-2xl sm:text-3xl font-bold mb-4 text-center">Kitchen Stock Manager</h1>
 
 <!-- Tabs -->
-<div class="flex gap-2 justify-center mb-6">
-<button class="tab-btn px-4 py-2 bg-indigo-600 text-white rounded" data-target="storeRoom">Store Room</button>
-<button class="tab-btn px-4 py-2 bg-gray-200 rounded" data-target="frail">Kitchen 1 - Frail</button>
-<button class="tab-btn px-4 py-2 bg-gray-200 rounded" data-target="catering">Kitchen 2 - Catering</button>
-<button class="tab-btn px-4 py-2 bg-gray-200 rounded" data-target="kefi">Kitchen 3 - Kefi</button>
-<button class="tab-btn px-4 py-2 bg-gray-200 rounded" data-target="frailFoh">Kitchen 4 - Frail FOH</button>
+<div class="flex flex-wrap gap-2 justify-center mb-4">
+<button class="tab-btn px-3 py-2 bg-indigo-600 text-white rounded text-sm sm:text-base" data-target="storeRoom">Store Room</button>
+<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="frail">Kitchen 1</button>
+<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="catering">Kitchen 2</button>
+<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="kefi">Kitchen 3</button>
+<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="frailFoh">Kitchen 4</button>
 </div>
 
+<!-- Pages -->
 <div id="content">
 
 <!-- Store Room -->
 <div id="storeRoom" class="page bg-white p-4 rounded shadow">
-<h2 class="font-semibold mb-2">Store Room</h2>
-<div class="flex gap-2 mb-2">
+<h2 class="font-semibold mb-2 text-lg sm:text-xl">Store Room</h2>
+<div class="flex flex-col sm:flex-row gap-2 mb-2">
 <input id="srItem" placeholder="Item" class="p-2 border rounded flex-1">
-<input id="srQty" type="number" placeholder="Qty" class="p-2 border w-24">
-<button id="srAdd" class="bg-green-600 text-white px-4 rounded">Add Item</button>
+<input id="srQty" type="number" placeholder="Qty" class="p-2 border w-full sm:w-24">
+<button id="srAdd" class="bg-green-600 text-white px-4 py-2 rounded mt-2 sm:mt-0">Add Item</button>
 </div>
 <h3 class="font-semibold mt-2">Stock:</h3>
 <ul id="srList" class="list-disc pl-6 max-h-48 overflow-auto"></ul>
@@ -174,7 +170,12 @@ fetchStock()
 </div>
 
 <!-- Kitchens -->
-<div id="frail" class="page hidden bg-white p-4 rounded shadow"><h2>Kitchen 1 — Frail</h2><ul id="frailStock" class="list-disc pl-6 max-h-48"></ul></div>
-<div id="catering" class="page hidden bg-white p-4 rounded shadow"><h2>Kitchen 2 — Catering</h2><ul id="cateringStock" class="list-disc pl-6 max-h-48"></ul></div>
-<div id="kefi" class="page hidden bg-white p-4 rounded shadow"><h2>Kitchen 3 — Kefi</h2><ul id="kefiStock" class="list-disc pl-6 max-h-48"></ul></div>
-<div id="frailFoh" class
+<div id="frail" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 1 — Frail</h2><ul id="frailStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
+<div id="catering" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 2 — Catering</h2><ul id="cateringStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
+<div id="kefi" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 3 — Kefi</h2><ul id="kefiStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
+<div id="frailFoh" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 4 — Frail FOH</h2><ul id="frailFohStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
+
+</div>
+</div>
+</body>
+</html>
