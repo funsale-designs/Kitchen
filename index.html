@@ -3,197 +3,161 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kitchen Stock Manager — Mobile</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<title>Kitchen Stock Manager</title>
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-// --- Supabase config ---
 const supabaseUrl = 'https://dkblxerbnokaeavwnlsu.supabase.co'
-const supabaseKey = 'YOUR_ANON_KEY_HERE'  // <-- replace with your Supabase anon key
+const supabaseKey = 'YOUR_SUPABASE_ANON_KEY'  // replace with your anon/public key
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-// --- Locations ---
-const LOCATIONS = ['storeRoom','frail','catering','kefi','frailFoh']
+// UTIL
+const $ = id => document.getElementById(id)
 
-// --- In-memory data ---
-let stock = { storeRoom: {}, frail: {}, catering: {}, kefi: {}, frailFoh: {} }
+// --- KITCHENS ---
+const kitchens = ['Store Room','Kitchen 1 Frail','Kitchen 2 Catering','Kitchen 3 Kefi','Kitchen 4 Frail FOH']
 
-// --- Helper ---
-function $(id){ return document.getElementById(id) }
-function locationLabel(id){
-    switch(id){
-        case 'storeRoom': return 'Store Room'
-        case 'frail': return 'Kitchen 1 - Frail'
-        case 'catering': return 'Kitchen 2 - Catering'
-        case 'kefi': return 'Kitchen 3 - Kefi'
-        case 'frailFoh': return 'Kitchen 4 - Frail FOH'
-        default: return id
-    }
+// --- NAV ---
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'))
+  $(id).classList.remove('hidden')
 }
 
-// --- UI setup ---
-function populateTransferOptions(){
-    const from = $('transferFrom')
-    const to = $('transferTo')
-    from.innerHTML = LOCATIONS.map(l => `<option value="${l}">${locationLabel(l)}</option>`).join('')
-    to.innerHTML = LOCATIONS.map(l => `<option value="${l}">${locationLabel(l)}</option>`).join('')
+// --- STOCK MANAGEMENT ---
+async function addStockItem(){
+  const name = $('stockName').value.trim()
+  const qty = parseInt($('stockQty').value)
+  const kitchen = $('stockKitchen').value
+  if(!name || qty <=0){ $('stockMsg').textContent='Enter valid name & qty'; return }
+
+  const { error } = await supabase.from('stock').insert([{name, qty, kitchen}])
+  if(error){ console.error(error); $('stockMsg').textContent='Error adding'; return }
+  $('stockMsg').textContent='Added!'
+  $('stockName').value=''; $('stockQty').value=''
+  fetchStock()
 }
 
-// --- Tab navigation ---
-document.querySelectorAll('.tab-btn').forEach(btn=>{
-    btn.addEventListener('click',()=>{
-        const target = btn.dataset.target
-        document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'))
-        $(target).classList.remove('hidden')
-        document.querySelectorAll('.tab-btn').forEach(b=>{
-            b.classList.remove('bg-indigo-600','text-white')
-        })
-        btn.classList.add('bg-indigo-600','text-white')
-    })
-})
-
-// --- Supabase functions ---
 async function fetchStock(){
-    for(const loc of LOCATIONS){
-        const { data, error } = await supabase.from('stock').select('*').eq('location', loc)
-        if(error) console.error(error)
-        stock[loc] = {}
-        if(data) data.forEach(row => stock[loc][row.item] = row.qty)
-        renderStockUI(loc)
-    }
-    renderLowStock()
+  const { data, error } = await supabase.from('stock').select('*').order('name')
+  if(error){ console.error(error); return }
+  const list = $('stockList')
+  list.innerHTML = ''
+  let lowStockItems = []
+  data.forEach(s=>{
+    const li = document.createElement('li')
+    li.textContent = `${s.name} (${s.kitchen}): ${s.qty}`
+    list.appendChild(li)
+    if(s.kitchen==='Store Room' && s.qty<3) lowStockItems.push(s.name)
+  })
+  $('lowStock').textContent = lowStockItems.length ? 'Low stock: ' + lowStockItems.join(', ') : 'All good'
 }
 
-async function addStock(location, item, qty){
-    const existing = stock[location][item] || 0
-    const newQty = existing + qty
-    if(newQty < 0) return alert(`Cannot reduce ${item} below 0`)
-    const { error } = await supabase.from('stock').upsert([{ location, item, qty: newQty }])
-    if(error) console.error(error)
-    stock[location][item] = newQty
-    renderStockUI(location)
-    renderLowStock()
-}
-
-// --- Rendering ---
-function renderStockUI(location){
-    const mapping = { storeRoom:'srList', frail:'frailStock', catering:'cateringStock', kefi:'kefiStock', frailFoh:'frailFohStock' }
-    const ul = $(mapping[location])
-    if(!ul) return
-    ul.innerHTML = ''
-    const items = stock[location] || {}
-    Object.keys(items).sort().forEach(it=>{
-        const li = document.createElement('li')
-        li.textContent = `${it}: ${items[it]}`
-        ul.appendChild(li)
-    })
-}
-
-function renderLowStock(){
-    const container = $('lowStockList')
-    container.innerHTML = ''
-    const low = []
-    for(const [item, qty] of Object.entries(stock.storeRoom || {})){
-        if(qty < 3) low.push({item, qty})
-    }
-    if(low.length){
-        low.forEach(i=>{
-            const li = document.createElement('li')
-            li.textContent = `${i.item}: ${i.qty} left`
-            container.appendChild(li)
-        })
-    } else {
-        container.textContent = 'All items sufficient'
-    }
-}
-
-// --- Transfer ---
-$('transferBtn')?.addEventListener('click', async ()=>{
-    const from = $('transferFrom').value
-    const to = $('transferTo').value
-    const item = $('transferItem').value.trim()
-    const qty = Number($('transferQty').value)
-    $('transferMessage').textContent = ''
-    if(!from || !to || !item || isNaN(qty) || qty <= 0){ $('transferMessage').textContent='Fill all fields'; return }
-    if(from === to){ $('transferMessage').textContent='From/To cannot be same'; return }
-    const available = stock[from][item] || 0
-    if(available < qty){ $('transferMessage').textContent = `Not enough ${item} in ${locationLabel(from)}`; return }
-    await addStock(to, item, qty)
-    await addStock(from, item, -qty)
-    $('transferMessage').textContent = `Transferred ${qty} ${item} from ${locationLabel(from)} to ${locationLabel(to)}`
-    $('transferItem').value=''; $('transferQty').value=''
+// --- RECIPES ---
+$('addIngredient').addEventListener('click', ()=>{
+  const div = document.createElement('div')
+  div.classList.add('flex','mb-1')
+  div.innerHTML = `
+    <input type="text" placeholder="Ingredient" class="p-2 border rounded flex-1 mr-1 ing-name">
+    <input type="number" placeholder="Qty" class="p-2 border rounded flex-1 ing-qty">
+  `
+  $('ingredientsContainer').appendChild(div)
 })
 
-// --- Store Room Add ---
-$('srAdd')?.addEventListener('click', async ()=>{
-    const item = $('srItem').value.trim()
-    const qty = Number($('srQty').value)
-    if(!item || isNaN(qty)){ alert('Enter item and qty'); return }
-    await addStock('storeRoom', item, qty)
-    $('srItem').value=''; $('srQty').value=''
+$('addRecipe').addEventListener('click', async ()=>{
+  const name = $('recipeName').value.trim()
+  if(!name){ $('recipeMsg').textContent='Enter recipe name'; return }
+
+  const ingElems = document.querySelectorAll('#ingredientsContainer > div')
+  let ingredients = {}
+  ingElems.forEach(div=>{
+    const ing = div.querySelector('.ing-name').value.trim()
+    const qty = parseFloat(div.querySelector('.ing-qty').value)
+    if(ing && qty>0) ingredients[ing] = qty
+  })
+  if(Object.keys(ingredients).length === 0){ $('recipeMsg').textContent='Add at least 1 ingredient'; return }
+
+  const { error } = await supabase.from('recipes').insert([{name, ingredients}])
+  if(error){ console.error(error); $('recipeMsg').textContent='Error adding recipe'; return }
+
+  $('recipeMsg').textContent='Recipe added!'
+  $('recipeName').value=''
+  $('ingredientsContainer').innerHTML = `<div class="flex mb-1">
+      <input type="text" placeholder="Ingredient" class="p-2 border rounded flex-1 mr-1 ing-name">
+      <input type="number" placeholder="Qty" class="p-2 border rounded flex-1 ing-qty">
+  </div>`
+  fetchRecipes()
 })
 
-// --- On load ---
-populateTransferOptions()
-fetchStock()
+async function fetchRecipes(){
+  const { data, error } = await supabase.from('recipes').select('*')
+  if(error){ console.error(error); return }
+  const list = $('recipeList')
+  list.innerHTML = ''
+  data.forEach(r=>{
+    const li = document.createElement('li')
+    li.textContent = `${r.name} — Ingredients: ${JSON.stringify(r.ingredients)}`
+    list.appendChild(li)
+  })
+}
+
+// --- ON LOAD ---
+document.addEventListener('DOMContentLoaded', ()=>{
+  kitchens.forEach(k=>{
+    const opt = document.createElement('option')
+    opt.value = k
+    opt.textContent = k
+    $('stockKitchen').appendChild(opt)
+  })
+  fetchStock()
+  fetchRecipes()
+})
 </script>
+<style>
+body{font-family:sans-serif;background:#f8f9fa;margin:0;padding:0}
+.page{padding:10px}
+.hidden{display:none}
+button{margin-top:5px;width:100%;padding:10px;border:none;color:white;border-radius:5px;font-size:16px}
+.bg-blue{background:#007BFF}
+.bg-green{background:#28A745}
+.bg-orange{background:#FD7E14}
+input{width:100%;margin-bottom:5px}
+ul{padding-left:20px; max-height:150px; overflow:auto}
+</style>
 </head>
-<body class="bg-gray-100 p-2 min-h-screen">
-<div class="max-w-2xl mx-auto">
-<h1 class="text-2xl sm:text-3xl font-bold mb-4 text-center">Kitchen Stock Manager</h1>
+<body>
 
-<!-- Tabs -->
-<div class="flex flex-wrap gap-2 justify-center mb-4">
-<button class="tab-btn px-3 py-2 bg-indigo-600 text-white rounded text-sm sm:text-base" data-target="storeRoom">Store Room</button>
-<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="frail">Kitchen 1</button>
-<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="catering">Kitchen 2</button>
-<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="kefi">Kitchen 3</button>
-<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="frailFoh">Kitchen 4</button>
+<nav class="bg-blue p-2 text-white flex justify-around">
+  <button onclick="showPage('stockPage')">Stock</button>
+  <button onclick="showPage('recipePage')">Recipes</button>
+</nav>
+
+<!-- STOCK PAGE -->
+<div id="stockPage" class="page">
+  <h2>Stock Management</h2>
+  <input id="stockName" placeholder="Item Name">
+  <input type="number" id="stockQty" placeholder="Qty">
+  <select id="stockKitchen"></select>
+  <button class="bg-green" onclick="addStockItem()">Add Item</button>
+  <p id="stockMsg" style="color:red;"></p>
+  <ul id="stockList"></ul>
+  <p id="lowStock" style="color:orange;font-weight:bold;"></p>
 </div>
 
-<!-- Pages -->
-<div id="content">
-
-<!-- Store Room -->
-<div id="storeRoom" class="page bg-white p-4 rounded shadow">
-<h2 class="font-semibold mb-2 text-lg sm:text-xl">Store Room</h2>
-
-<!-- Add Item -->
-<div class="flex flex-col sm:flex-row gap-2 mb-2">
-<input id="srItem" placeholder="Item" class="p-2 border rounded flex-1">
-<input id="srQty" type="number" placeholder="Qty" class="p-2 border w-full sm:w-24">
-<button id="srAdd" class="bg-green-600 text-white px-4 py-2 rounded mt-2 sm:mt-0">Add Item</button>
+<!-- RECIPE PAGE -->
+<div id="recipePage" class="page hidden">
+  <h2>Recipes</h2>
+  <input id="recipeName" placeholder="Recipe Name">
+  <div id="ingredientsContainer">
+    <div class="flex mb-1">
+      <input type="text" placeholder="Ingredient" class="p-2 border rounded flex-1 mr-1 ing-name">
+      <input type="number" placeholder="Qty" class="p-2 border rounded flex-1 ing-qty">
+    </div>
+  </div>
+  <button id="addIngredient" class="bg-orange">Add Ingredient</button>
+  <button id="addRecipe" class="bg-green">Add Recipe</button>
+  <p id="recipeMsg" style="color:red;"></p>
+  <ul id="recipeList"></ul>
 </div>
 
-<!-- Transfer Stock -->
-<h3 class="font-semibold mt-4">Transfer Stock</h3>
-<div class="flex flex-col sm:flex-row gap-2 mb-2">
-<select id="transferFrom" class="p-2 border rounded flex-1"></select>
-<select id="transferTo" class="p-2 border rounded flex-1"></select>
-</div>
-<div class="flex flex-col sm:flex-row gap-2 mb-2">
-<input id="transferItem" placeholder="Item" class="p-2 border rounded flex-1">
-<input id="transferQty" type="number" placeholder="Qty" class="p-2 border w-full sm:w-24">
-<button id="transferBtn" class="bg-blue-600 text-white px-4 py-2 rounded mt-2 sm:mt-0">Transfer</button>
-</div>
-<div id="transferMessage" class="text-red-600 text-sm mb-2"></div>
-
-<!-- Stock List -->
-<h3 class="font-semibold mt-2">Stock:</h3>
-<ul id="srList" class="list-disc pl-6 max-h-48 overflow-auto"></ul>
-
-<h3 class="font-semibold mt-4">Low Stock (<3) / Shopping List:</h3>
-<ul id="lowStockList" class="list-disc pl-6 text-red-600"></ul>
-</div>
-
-<!-- Kitchens -->
-<div id="frail" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 1 — Frail</h2><ul id="frailStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
-<div id="catering" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 2 — Catering</h2><ul id="cateringStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
-<div id="kefi" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 3 — Kefi</h2><ul id="kefiStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
-<div id="frailFoh" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 4 — Frail FOH</h2><ul id="frailFohStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
-
-</div>
-</div>
 </body>
 </html>
