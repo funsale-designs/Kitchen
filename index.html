@@ -3,8 +3,82 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kitchen Stock Manager — Mobile</title>
+<title>Professional Kitchen Stock Manager — Mobile</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<style>
+    /* Custom CSS to override/extend Tailwind for a more polished look */
+    body {
+        font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+        background-color: #f0f2f5; /* Light subtle gray background */
+    }
+    .page {
+        background-color: #ffffff;
+        border-radius: 0.75rem; /* More rounded corners */
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); /* Softer, deeper shadow */
+        padding: 1.5rem; /* Increased padding */
+        margin-bottom: 1.5rem; /* Spacing between cards */
+    }
+    .tab-btn {
+        transition: all 0.2s ease-in-out;
+        font-weight: 500; /* Medium font weight */
+        color: #4a5568; /* Darker gray for inactive tabs */
+        padding: 0.65rem 1rem; /* Slightly more vertical padding */
+    }
+    .tab-btn.bg-indigo-600 {
+        background-color: #2c7a7b; /* Deep Teal - New primary accent color */
+        color: white;
+        box-shadow: 0 2px 6px rgba(44, 122, 123, 0.4); /* Shadow for active tab */
+    }
+    .tab-btn:hover:not(.bg-indigo-600) {
+        background-color: #edf2f7; /* Lighter hover for inactive */
+    }
+    .btn-primary {
+        background-color: #3182ce; /* A nice blue for main actions */
+        color: white;
+        padding: 0.65rem 1.25rem;
+        border-radius: 0.5rem;
+        transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    }
+    .btn-primary:hover {
+        background-color: #2c5282; /* Darker blue on hover */
+        box-shadow: 0 2px 8px rgba(49, 130, 206, 0.4);
+    }
+    .btn-green {
+        background-color: #48bb78; /* Consistent green */
+    }
+    .btn-green:hover {
+        background-color: #38a169;
+    }
+    .btn-purple {
+        background-color: #805ad5; /* Consistent purple */
+    }
+    .btn-purple:hover {
+        background-color: #6b46c1;
+    }
+    input, select, textarea {
+        border-color: #cbd5e0; /* Lighter border color */
+        border-radius: 0.375rem; /* Slightly rounded */
+        padding: 0.65rem 0.75rem; /* Consistent padding */
+        font-size: 0.95rem; /* Slightly larger font */
+    }
+    ul.list-disc {
+        list-style-type: disc; /* Ensure consistent bullet points */
+        margin-left: 1.5rem; /* Indent lists properly */
+        padding-left: 0;
+    }
+    h1 {
+        color: #2d3748; /* Darker text for titles */
+    }
+    h2, h3, h4 {
+        color: #4a5568; /* Slightly lighter for headings */
+    }
+    .text-red-600 {
+        color: #e53e3e; /* Standard red for warnings */
+    }
+    .text-green-600 {
+        color: #38a169; /* Standard green for success */
+    }
+</style>
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
@@ -18,7 +92,7 @@ const LOCATIONS = ['storeRoom','frail','catering','kefi','frailFoh']
 
 // --- In-memory data ---
 let stock = { storeRoom: {}, frail: {}, catering: {}, kefi: {}, frailFoh: {} }
-let recipes = {} // New: Storage for recipes
+let recipes = {} // Storage for recipes
 
 // --- Helper ---
 function $(id){ return document.getElementById(id) }
@@ -32,6 +106,32 @@ function locationLabel(id){
         default: return id
     }
 }
+
+// --- Recipe Parsing Function ---
+function parseSimpleRecipe(text){
+    const ingredientList = {}
+    const lines = text.split('\n').filter(line => line.trim() !== '')
+
+    for(const line of lines){
+        const match = line.trim().match(/^(\d+(\.\d+)?|\d+(,\d+)?)\s*(.*)/i)
+        
+        if(match){
+            let qty = parseFloat(match[1].replace(',', '.')) 
+            let itemText = match[4].trim()
+            
+            // Item name cleanup: Remove common leading/trailing units if they make sense to group
+            // For robust stock matching, it's best if the user's stock items exactly match recipe items.
+            // E.g., if you stock "Salt", then recipe should say "5 Salt", not "5ml Salt".
+            // For now, we'll take the itemText as-is after the number.
+            let itemName = itemText
+            ingredientList[itemName] = (ingredientList[itemName] || 0) + qty
+        } else {
+            console.warn(`Skipping unparseable line: ${line}`)
+        }
+    }
+    return ingredientList
+}
+
 
 // --- UI setup ---
 function populateTransferOptions(){
@@ -54,9 +154,11 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
         document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'))
         $(target).classList.remove('hidden')
         document.querySelectorAll('.tab-btn').forEach(b=>{
-            b.classList.remove('bg-indigo-600','text-white')
+            b.classList.remove('bg-indigo-600','text-white') // Remove old active styles
+            b.classList.add('bg-gray-200','text-gray-700') // Add inactive styles
         })
-        btn.classList.add('bg-indigo-600','text-white')
+        btn.classList.remove('bg-gray-200','text-gray-700') // Remove inactive styles from active tab
+        btn.classList.add('bg-indigo-600','text-white') // Add new active styles
     })
 })
 
@@ -101,7 +203,6 @@ function renderLowStock(){
     const container = $('lowStockList')
     container.innerHTML = ''
     const low = []
-    // Check Store Room stock
     for(const [item, qty] of Object.entries(stock.storeRoom || {})){
         if(qty < 3) low.push({item, qty})
     }
@@ -128,7 +229,6 @@ function renderShoppingList(recipeName){
     const neededItems = []
     const storeRoomStock = stock.storeRoom || {}
 
-    // Recipe format: { "itemName": requiredQuantity }
     for(const [item, requiredQty] of Object.entries(recipe)){
         const availableQty = storeRoomStock[item] || 0
         const deficit = requiredQty - availableQty
@@ -152,36 +252,40 @@ function renderShoppingList(recipeName){
     }
 }
 
+
 // --- Recipe Management Handlers ---
-$('recipeUploadBtn')?.addEventListener('click', ()=>{
-    const textarea = $('recipeJson')
+$('simpleRecipeUploadBtn')?.addEventListener('click', ()=>{
+    const name = $('simpleRecipeName').value.trim()
+    const text = $('simpleRecipeTextarea').value.trim()
     const message = $('recipeMessage')
     message.textContent = ''
-    try {
-        const newRecipes = JSON.parse(textarea.value)
-        // Simple check to ensure it's a map of recipes
-        if(typeof newRecipes !== 'object' || Array.isArray(newRecipes)){
-            message.textContent = 'Error: Input must be a JSON object of recipes (e.g. {"Recipe A": {"item1": 5}}).'
-            return
-        }
-        
-        // Merge new recipes with existing ones
-        recipes = { ...recipes, ...newRecipes }
-        
-        populateRecipeSelect()
-        message.textContent = `Successfully added/updated ${Object.keys(newRecipes).length} recipe(s).`
-        textarea.value = '' // Clear textarea on success
-
-    } catch (e) {
-        message.textContent = 'Error: Invalid JSON format.'
-        console.error(e)
+    
+    if(!name || !text) {
+        message.textContent = 'Error: Enter a recipe name and ingredients.'
+        message.classList.remove('text-green-600'); message.classList.add('text-red-600');
+        return
     }
+
+    const newRecipeItems = parseSimpleRecipe(text)
+    
+    if(Object.keys(newRecipeItems).length === 0) {
+        message.textContent = 'Error: Could not parse any ingredients. Ensure each line starts with a number (e.g., "5 tomato").'
+        message.classList.remove('text-green-600'); message.classList.add('text-red-600');
+        return
+    }
+
+    recipes[name] = newRecipeItems
+    
+    populateRecipeSelect()
+    message.textContent = `Successfully added/updated recipe: ${name}.`
+    message.classList.remove('text-red-600'); message.classList.add('text-green-600');
+    $('simpleRecipeName').value = ''
+    $('simpleRecipeTextarea').value = ''
 })
 
 $('recipeSelect')?.addEventListener('change', (e)=>{
     const recipeName = e.target.value
     renderShoppingList(recipeName)
-    // Optional: Render prep list/ingredients (simple list)
     const prepList = $('prepList')
     prepList.innerHTML = ''
     const recipe = recipes[recipeName]
@@ -212,7 +316,6 @@ $('transferBtn')?.addEventListener('click', async ()=>{
     await addStock(from, item, -qty)
     $('transferMessage').textContent = `Transferred ${qty} ${item} from ${locationLabel(from)} to ${locationLabel(to)}`
     $('transferItem').value=''; $('transferQty').value=''
-    // Re-render shopping list if a recipe is selected
     renderShoppingList($('recipeSelect').value)
 })
 
@@ -223,91 +326,100 @@ $('srAdd')?.addEventListener('click', async ()=>{
     if(!item || isNaN(qty)){ alert('Enter item and qty'); return }
     await addStock('storeRoom', item, qty)
     $('srItem').value=''; $('srQty').value=''
-    // Re-render shopping list if a recipe is selected
     renderShoppingList($('recipeSelect').value)
 })
 
 // --- On load ---
 populateTransferOptions()
-// Must run populateRecipeSelect after any potential recipe data fetching if you stored them in Supabase
-// For now, it runs with an empty 'recipes' object and will be populated manually.
 populateRecipeSelect() 
 fetchStock()
 </script>
 </head>
 <body class="bg-gray-100 p-2 min-h-screen">
-<div class="max-w-2xl mx-auto">
-<h1 class="text-2xl sm:text-3xl font-bold mb-4 text-center">Kitchen Stock Manager</h1>
+<div class="max-w-2xl mx-auto py-4"> <h1 class="text-3xl sm:text-4xl font-extrabold mb-6 text-center text-gray-800">Kitchen Stock Manager</h1>
 
-<div class="flex flex-wrap gap-2 justify-center mb-4">
-<button class="tab-btn px-3 py-2 bg-indigo-600 text-white rounded text-sm sm:text-base" data-target="storeRoom">Store Room</button>
-<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="recipes">Recipes</button>
-<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="frail">Kitchen 1</button>
-<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="catering">Kitchen 2</button>
-<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="kefi">Kitchen 3</button>
-<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="frailFoh">Kitchen 4</button>
+<div class="flex flex-wrap gap-2 justify-center mb-6 px-2">
+<button class="tab-btn px-4 py-2 bg-indigo-600 text-white rounded-lg text-base" data-target="storeRoom">Store Room</button>
+<button class="tab-btn px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-base" data-target="recipes">Recipes</button>
+<button class="tab-btn px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-base" data-target="frail">Kitchen 1</button>
+<button class="tab-btn px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-base" data-target="catering">Kitchen 2</button>
+<button class="tab-btn px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-base" data-target="kefi">Kitchen 3</button>
+<button class="tab-btn px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-base" data-target="frailFoh">Kitchen 4</button>
 </div>
 
 <div id="content">
 
-<div id="recipes" class="page hidden bg-white p-4 rounded shadow">
-<h2 class="font-semibold mb-2 text-lg sm:text-xl">Recipe Management</h2>
+<div id="recipes" class="page hidden">
+<h2 class="font-bold mb-4 text-xl sm:text-2xl">Recipe Management</h2>
 
-<h3 class="font-semibold mt-2">Add/Update Recipes (JSON Format)</h3>
-<p class="text-xs text-gray-500 mb-2">
-    Format: {"Recipe Name 1": {"item name A": 5, "item name B": 2}, "Recipe Name 2": {...}}
+<h3 class="font-semibold mt-2 text-lg">Add New Recipe (Simple List) 📝</h3>
+<p class="text-sm text-gray-600 mb-3">
+    Enter a name and then list ingredients, each starting with a quantity (e.g., **5 tomato**, **2.5 onion**, **5ml salt**).
 </p>
-<textarea id="recipeJson" rows="5" placeholder='Paste your recipes here...' class="p-2 border rounded w-full mb-2"></textarea>
-<button id="recipeUploadBtn" class="bg-purple-600 text-white px-4 py-2 rounded w-full">Add/Update Recipes</button>
-<div id="recipeMessage" class="text-green-600 text-sm mt-2"></div>
+<input id="simpleRecipeName" placeholder="Recipe Name (e.g., 'Spaghetti Bolognese')" class="p-2 border rounded-md w-full mb-2 focus:ring-2 focus:ring-blue-300 focus:border-blue-500">
+<textarea id="simpleRecipeTextarea" rows="6" placeholder='Paste your ingredients here...
+e.g.
+5 tomato
+2 onion
+5ml salt
+1kg ground beef' 
+class="p-2 border rounded-md w-full mb-3 focus:ring-2 focus:ring-blue-300 focus:border-blue-500"></textarea>
+<button id="simpleRecipeUploadBtn" class="btn-purple text-white px-4 py-2 rounded-md w-full font-semibold">Add/Update Recipe</button>
+<div id="recipeMessage" class="text-green-600 text-sm mt-3 font-medium"></div>
 
-<h3 class="font-semibold mt-4">Generate Lists</h3>
-<select id="recipeSelect" class="p-2 border rounded w-full mb-4"></select>
+<h3 class="font-semibold mt-6 text-lg">Generate Lists</h3>
+<select id="recipeSelect" class="p-2 border rounded-md w-full mb-5 focus:ring-2 focus:ring-blue-300 focus:border-blue-500"></select>
 
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
     <div>
-        <h4 class="font-bold text-md">1. Prep/Required Items List:</h4>
-        <ul id="prepList" class="list-disc pl-6 max-h-48 overflow-auto"></ul>
+        <h4 class="font-bold text-lg mb-2 text-gray-700">1. Prep/Required Items List:</h4>
+        <ul id="prepList" class="list-disc pl-6 max-h-60 overflow-y-auto text-gray-800 bg-gray-50 p-3 rounded-md border border-gray-200">
+            <li class="text-gray-500">Select a recipe to see its required ingredients.</li>
+        </ul>
     </div>
     <div>
-        <h4 class="font-bold text-md text-red-600">2. Shopping List (Deficit):</h4>
-        <ul id="shoppingList" class="list-disc pl-6 max-h-48 overflow-auto text-red-600"></ul>
+        <h4 class="font-bold text-lg mb-2 text-red-600">2. Shopping List (Deficit):</h4>
+        <ul id="shoppingList" class="list-disc pl-6 max-h-60 overflow-y-auto text-red-700 bg-red-50 p-3 rounded-md border border-red-200">
+            <li class="text-gray-500">Select a recipe to generate a list.</li>
+        </ul>
     </div>
 </div>
 
 </div>
-<div id="storeRoom" class="page bg-white p-4 rounded shadow">
-<h2 class="font-semibold mb-2 text-lg sm:text-xl">Store Room</h2>
 
-<div class="flex flex-col sm:flex-row gap-2 mb-2">
-<input id="srItem" placeholder="Item" class="p-2 border rounded flex-1">
-<input id="srQty" type="number" placeholder="Qty" class="p-2 border w-full sm:w-24">
-<button id="srAdd" class="bg-green-600 text-white px-4 py-2 rounded mt-2 sm:mt-0">Add Item</button>
+<div id="storeRoom" class="page">
+<h2 class="font-bold mb-4 text-xl sm:text-2xl">Store Room</h2>
+
+<h3 class="font-semibold mt-2 text-lg">Add Stock</h3>
+<div class="flex flex-col sm:flex-row gap-3 mb-4">
+<input id="srItem" placeholder="Item Name (e.g., 'Tomato')" class="p-2 border rounded-md flex-1 focus:ring-2 focus:ring-blue-300 focus:border-blue-500">
+<input id="srQty" type="number" placeholder="Qty" class="p-2 border rounded-md w-full sm:w-28 focus:ring-2 focus:ring-blue-300 focus:border-blue-500">
+<button id="srAdd" class="btn-green text-white px-4 py-2 rounded-md mt-2 sm:mt-0 font-semibold">Add Item</button>
 </div>
 
-<h3 class="font-semibold mt-4">Transfer Stock</h3>
-<div class="flex flex-col sm:flex-row gap-2 mb-2">
-<select id="transferFrom" class="p-2 border rounded flex-1"></select>
-<select id="transferTo" class="p-2 border rounded flex-1"></select>
+<h3 class="font-semibold mt-4 text-lg">Transfer Stock</h3>
+<div class="flex flex-col sm:flex-row gap-3 mb-2">
+<select id="transferFrom" class="p-2 border rounded-md flex-1 focus:ring-2 focus:ring-blue-300 focus:border-blue-500"></select>
+<select id="transferTo" class="p-2 border rounded-md flex-1 focus:ring-2 focus:ring-blue-300 focus:border-blue-500"></select>
 </div>
-<div class="flex flex-col sm:flex-row gap-2 mb-2">
-<input id="transferItem" placeholder="Item" class="p-2 border rounded flex-1">
-<input id="transferQty" type="number" placeholder="Qty" class="p-2 border w-full sm:w-24">
-<button id="transferBtn" class="bg-blue-600 text-white px-4 py-2 rounded mt-2 sm:mt-0">Transfer</button>
+<div class="flex flex-col sm:flex-row gap-3 mb-4">
+<input id="transferItem" placeholder="Item Name" class="p-2 border rounded-md flex-1 focus:ring-2 focus:ring-blue-300 focus:border-blue-500">
+<input id="transferQty" type="number" placeholder="Qty" class="p-2 border rounded-md w-full sm:w-28 focus:ring-2 focus:ring-blue-300 focus:border-blue-500">
+<button id="transferBtn" class="btn-primary px-4 py-2 rounded-md mt-2 sm:mt-0 font-semibold">Transfer</button>
 </div>
-<div id="transferMessage" class="text-red-600 text-sm mb-2"></div>
+<div id="transferMessage" class="text-red-600 text-sm mb-4 font-medium"></div>
 
-<h3 class="font-semibold mt-2">Stock:</h3>
-<ul id="srList" class="list-disc pl-6 max-h-48 overflow-auto"></ul>
+<h3 class="font-semibold mt-2 text-lg">Current Stock:</h3>
+<ul id="srList" class="list-disc pl-6 max-h-60 overflow-y-auto bg-gray-50 p-3 rounded-md border border-gray-200"></ul>
 
-<h3 class="font-semibold mt-4">Low Stock (<3) / Shopping List:</h3>
-<ul id="lowStockList" class="list-disc pl-6 text-red-600"></ul>
+<h3 class="font-semibold mt-6 text-lg">Low Stock (<3) / Shopping Alert:</h3>
+<ul id="lowStockList" class="list-disc pl-6 text-red-700 bg-red-50 p-3 rounded-md border border-red-200 max-h-40 overflow-y-auto"></ul>
 </div>
 
-<div id="frail" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 1 — Frail</h2><ul id="frailStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
-<div id="catering" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 2 — Catering</h2><ul id="cateringStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
-<div id="kefi" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 3 — Kefi</h2><ul id="kefiStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
-<div id="frailFoh" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 4 — Frail FOH</h2><ul id="frailFohStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
+<div id="frail" class="page hidden"><h2 class="font-bold text-xl sm:text-2xl mb-4">Kitchen 1 — Frail</h2><ul id="frailStock" class="list-disc pl-6 max-h-60 overflow-y-auto bg-gray-50 p-3 rounded-md border border-gray-200"></ul></div>
+<div id="catering" class="page hidden"><h2 class="font-bold text-xl sm:text-2xl mb-4">Kitchen 2 — Catering</h2><ul id="cateringStock" class="list-disc pl-6 max-h-60 overflow-y-auto bg-gray-50 p-3 rounded-md border border-gray-200"></ul></div>
+<div id="kefi" class="page hidden"><h2 class="font-bold text-xl sm:text-2xl mb-4">Kitchen 3 — Kefi</h2><ul id="kefiStock" class="list-disc pl-6 max-h-60 overflow-y-auto bg-gray-50 p-3 rounded-md border border-gray-200"></ul></div>
+<div id="frailFoh" class="page hidden"><h2 class="font-bold text-xl sm:text-2xl mb-4">Kitchen 4 — Frail FOH</h2><ul id="frailFohStock" class="list-disc pl-6 max-h-60 overflow-y-auto bg-gray-50 p-3 rounded-md border border-gray-200"></ul></div>
 
 </div>
 </div>
