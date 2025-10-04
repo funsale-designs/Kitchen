@@ -1,88 +1,180 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Firebase Kitchen Test</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kitchen Stock Manager — Supabase</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
+
+// --- Supabase config ---
+const supabaseUrl = 'https://dkblxerbnokaeavwnlsu.supabase.co'
+const supabaseKey = 'YOUR_ANON_KEY_HERE'  // <-- replace with your Supabase anon key
+const supabase = createClient(supabaseUrl, supabaseKey)
+
+// --- Locations ---
+const LOCATIONS = ['storeRoom','frail','catering','kefi','frailFoh']
+
+// --- In-memory data ---
+let stock = { storeRoom: {}, frail: {}, catering: {}, kefi: {}, frailFoh: {} }
+let recipes = { frail: [], catering: [], kefi: [], frailFoh: [] }
+let menu = { frail: [], catering: [], kefi: [], frailFoh: [] }
+
+// --- Helper ---
+function $(id){ return document.getElementById(id) }
+function locationLabel(id){
+    switch(id){
+        case 'storeRoom': return 'Store Room'
+        case 'frail': return 'Kitchen 1 - Frail'
+        case 'catering': return 'Kitchen 2 - Catering'
+        case 'kefi': return 'Kitchen 3 - Kefi'
+        case 'frailFoh': return 'Kitchen 4 - Frail FOH'
+        default: return id
+    }
+}
+
+// --- UI setup ---
+function populateTransferOptions(){
+    const from = $('transferFrom')
+    const to = $('transferTo')
+    from.innerHTML = LOCATIONS.map(l => `<option value="${l}">${locationLabel(l)}</option>`).join('')
+    to.innerHTML = LOCATIONS.map(l => `<option value="${l}">${locationLabel(l)}</option>`).join('')
+}
+
+// --- Tab navigation ---
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+        const target = btn.dataset.target
+        document.querySelectorAll('.page').forEach(p=>p.classList.add('hidden'))
+        $(target).classList.remove('hidden')
+        document.querySelectorAll('.tab-btn').forEach(b=>{
+            b.classList.remove('bg-indigo-600','text-white')
+        })
+        btn.classList.add('bg-indigo-600','text-white')
+    })
+})
+
+// --- Supabase functions ---
+// Fetch all stock
+async function fetchStock(){
+    for(const loc of LOCATIONS){
+        const { data, error } = await supabase.from('stock').select('*').eq('location', loc)
+        if(error) console.error(error)
+        stock[loc] = {}
+        if(data) data.forEach(row => stock[loc][row.item] = row.qty)
+        renderStockUI(loc)
+    }
+    renderLowStock()
+}
+
+// Add or update stock
+async function addStock(location, item, qty){
+    const existing = stock[location][item] || 0
+    const newQty = existing + qty
+    const { data, error } = await supabase.from('stock').upsert([{ location, item, qty: newQty }])
+    if(error) console.error(error)
+    stock[location][item] = newQty
+    renderStockUI(location)
+    renderLowStock()
+}
+
+// --- Rendering ---
+function renderStockUI(location){
+    const mapping = { storeRoom:'srList', frail:'frailStock', catering:'cateringStock', kefi:'kefiStock', frailFoh:'frailFohStock' }
+    const ul = $(mapping[location])
+    if(!ul) return
+    ul.innerHTML = ''
+    const items = stock[location] || {}
+    Object.keys(items).sort().forEach(it=>{
+        const li = document.createElement('li')
+        li.textContent = `${it}: ${items[it]}`
+        ul.appendChild(li)
+    })
+}
+
+// --- Low stock / shopping list ---
+function renderLowStock(){
+    const container = $('lowStockList')
+    container.innerHTML = ''
+    const low = []
+    for(const [item, qty] of Object.entries(stock.storeRoom || {})){
+        if(qty < 3) low.push({item, qty})
+    }
+    if(low.length){
+        low.forEach(i=>{
+            const li = document.createElement('li')
+            li.textContent = `${i.item}: ${i.qty} left`
+            container.appendChild(li)
+        })
+    } else {
+        container.textContent = 'All items sufficient'
+    }
+}
+
+// --- Transfer ---
+$('transferBtn').addEventListener('click', async ()=>{
+    const from = $('transferFrom').value
+    const to = $('transferTo').value
+    const item = $('transferItem').value.trim()
+    const qty = Number($('transferQty').value)
+    $('transferMessage').textContent = ''
+    if(!from || !to || !item || isNaN(qty) || qty <= 0){ $('transferMessage').textContent='Fill all fields'; return }
+    if(from === to){ $('transferMessage').textContent='From/To cannot be same'; return }
+    const available = stock[from][item] || 0
+    if(available < qty){ $('transferMessage').textContent = `Not enough ${item} in ${locationLabel(from)}`; return }
+    await addStock(to, item, qty)
+    await addStock(from, item, -qty)
+    $('transferMessage').textContent = `Transferred ${qty} ${item} from ${locationLabel(from)} to ${locationLabel(to)}`
+})
+
+// --- Store Room Add ---
+$('srAdd').addEventListener('click', async ()=>{
+    const item = $('srItem').value.trim()
+    const qty = Number($('srQty').value)
+    if(!item || isNaN(qty)){ alert('Enter item and qty'); return }
+    await addStock('storeRoom', item, qty)
+    $('srItem').value=''; $('srQty').value=''
+})
+
+// --- On load ---
+populateTransferOptions()
+fetchStock()
+
+</script>
 </head>
-<body>
-  <h1>🍲 Kitchen Stock Test Page</h1>
-  
-  <div id="firebase-status" style="padding:10px; background:#eee; margin:10px; border:1px solid #ccc; margin-bottom:20px;">
-    Checking Firebase connection...
-  </div>
+<body class="bg-gray-100 p-4 min-h-screen">
+<div class="max-w-4xl mx-auto">
+<h1 class="text-3xl font-bold mb-4 text-center">Kitchen Stock Manager — Supabase</h1>
 
-  <div>
-    <button id="addTest">➕ Add Test Item</button>
-    <button id="getTest">📦 Get Test Item</button>
-  </div>
+<!-- Tabs -->
+<div class="flex gap-2 justify-center mb-6">
+<button class="tab-btn px-4 py-2 bg-indigo-600 text-white rounded" data-target="storeRoom">Store Room</button>
+<button class="tab-btn px-4 py-2 bg-gray-200 rounded" data-target="frail">Kitchen 1 - Frail</button>
+<button class="tab-btn px-4 py-2 bg-gray-200 rounded" data-target="catering">Kitchen 2 - Catering</button>
+<button class="tab-btn px-4 py-2 bg-gray-200 rounded" data-target="kefi">Kitchen 3 - Kefi</button>
+<button class="tab-btn px-4 py-2 bg-gray-200 rounded" data-target="frailFoh">Kitchen 4 - Frail FOH</button>
+</div>
 
-  <pre id="output" style="padding:10px; background:#fafafa; border:1px solid #ccc; margin-top:10px;"></pre>
+<div id="content">
 
-  <!-- Firebase Setup -->
-  <script type="module">
-    // Import Firebase SDKs
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
-    import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+<!-- Store Room -->
+<div id="storeRoom" class="page bg-white p-4 rounded shadow">
+<h2 class="font-semibold mb-2">Store Room</h2>
+<div class="flex gap-2 mb-2">
+<input id="srItem" placeholder="Item" class="p-2 border rounded flex-1">
+<input id="srQty" type="number" placeholder="Qty" class="p-2 border w-24">
+<button id="srAdd" class="bg-green-600 text-white px-4 rounded">Add Item</button>
+</div>
+<h3 class="font-semibold mt-2">Stock:</h3>
+<ul id="srList" class="list-disc pl-6 max-h-48 overflow-auto"></ul>
 
-    // ✅ Your Firebase Config
-    const firebaseConfig = {
-      apiKey: "AIzaSyDywp4wU8oiDypiQ5OydSfQuyx8xS2BerQ",
-      authDomain: "kitchen-stock-44799.firebaseapp.com",
-      projectId: "kitchen-stock-44799",
-      storageBucket: "kitchen-stock-44799.appspot.com",
-      messagingSenderId: "320520731433",
-      appId: "1:320520731433:web:a69d9bc6fc1cb3959f5538",
-      measurementId: "G-11Q1S857RR"
-    };
+<h3 class="font-semibold mt-4">Low Stock (<3) / Shopping List:</h3>
+<ul id="lowStockList" class="list-disc pl-6 text-red-600"></ul>
+</div>
 
-    // Initialize Firebase
-    const app = initializeApp(firebaseConfig);
-    const db = getFirestore(app);
-
-    // 🔍 Test Firebase connection immediately
-    async function testFirebase() {
-      try {
-        await setDoc(doc(db, "test", "hello"), { msg: "Firebase works!" });
-        const snap = await getDoc(doc(db, "test", "hello"));
-        document.getElementById("firebase-status").innerText =
-          "✅ Firebase Connected: " + JSON.stringify(snap.data());
-      } catch (err) {
-        document.getElementById("firebase-status").innerText =
-          "❌ Firebase Error: " + err.message;
-      }
-    }
-    testFirebase();
-
-    // ➕ Add Test Item
-    async function addTest() {
-      try {
-        await setDoc(doc(db, "storeRoom", "sugar"), { name: "Sugar", qty: 2 });
-        document.getElementById("output").innerText = "✅ Added Sugar (qty 2)";
-      } catch (err) {
-        document.getElementById("output").innerText = "❌ Error adding: " + err.message;
-      }
-    }
-
-    // 📦 Get Test Item
-    async function getTest() {
-      try {
-        const snap = await getDoc(doc(db, "storeRoom", "sugar"));
-        if (snap.exists()) {
-          document.getElementById("output").innerText =
-            "📦 Store Room Item: " + JSON.stringify(snap.data());
-        } else {
-          document.getElementById("output").innerText = "⚠️ No Sugar found in storeRoom!";
-        }
-      } catch (err) {
-        document.getElementById("output").innerText = "❌ Error reading: " + err.message;
-      }
-    }
-
-    // Button events
-    document.getElementById("addTest").addEventListener("click", addTest);
-    document.getElementById("getTest").addEventListener("click", getTest);
-  </script>
-</body>
-</html>
+<!-- Kitchens -->
+<div id="frail" class="page hidden bg-white p-4 rounded shadow"><h2>Kitchen 1 — Frail</h2><ul id="frailStock" class="list-disc pl-6 max-h-48"></ul></div>
+<div id="catering" class="page hidden bg-white p-4 rounded shadow"><h2>Kitchen 2 — Catering</h2><ul id="cateringStock" class="list-disc pl-6 max-h-48"></ul></div>
+<div id="kefi" class="page hidden bg-white p-4 rounded shadow"><h2>Kitchen 3 — Kefi</h2><ul id="kefiStock" class="list-disc pl-6 max-h-48"></ul></div>
+<div id="frailFoh" class
