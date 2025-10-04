@@ -18,6 +18,7 @@ const LOCATIONS = ['storeRoom','frail','catering','kefi','frailFoh']
 
 // --- In-memory data ---
 let stock = { storeRoom: {}, frail: {}, catering: {}, kefi: {}, frailFoh: {} }
+let recipes = {} // New: Storage for recipes
 
 // --- Helper ---
 function $(id){ return document.getElementById(id) }
@@ -38,6 +39,12 @@ function populateTransferOptions(){
     const to = $('transferTo')
     from.innerHTML = LOCATIONS.map(l => `<option value="${l}">${locationLabel(l)}</option>`).join('')
     to.innerHTML = LOCATIONS.map(l => `<option value="${l}">${locationLabel(l)}</option>`).join('')
+}
+
+function populateRecipeSelect(){
+    const select = $('recipeSelect')
+    select.innerHTML = '<option value="">-- Select Recipe --</option>' + 
+        Object.keys(recipes).map(name => `<option value="${name}">${name}</option>`).join('')
 }
 
 // --- Tab navigation ---
@@ -94,6 +101,7 @@ function renderLowStock(){
     const container = $('lowStockList')
     container.innerHTML = ''
     const low = []
+    // Check Store Room stock
     for(const [item, qty] of Object.entries(stock.storeRoom || {})){
         if(qty < 3) low.push({item, qty})
     }
@@ -107,6 +115,87 @@ function renderLowStock(){
         container.textContent = 'All items sufficient'
     }
 }
+
+function renderShoppingList(recipeName){
+    const list = $('shoppingList')
+    list.innerHTML = ''
+    const recipe = recipes[recipeName]
+    if (!recipe) {
+        list.textContent = 'Select a recipe to generate a list.'
+        return
+    }
+
+    const neededItems = []
+    const storeRoomStock = stock.storeRoom || {}
+
+    // Recipe format: { "itemName": requiredQuantity }
+    for(const [item, requiredQty] of Object.entries(recipe)){
+        const availableQty = storeRoomStock[item] || 0
+        const deficit = requiredQty - availableQty
+        
+        if(deficit > 0){
+            neededItems.push({
+                item: item, 
+                needed: deficit
+            })
+        }
+    }
+
+    if(neededItems.length > 0){
+        neededItems.forEach(i => {
+            const li = document.createElement('li')
+            li.textContent = `${i.item}: Need ${i.needed}`
+            list.appendChild(li)
+        })
+    } else {
+        list.textContent = `You have all the ingredients for ${recipeName} in the Store Room!`
+    }
+}
+
+// --- Recipe Management Handlers ---
+$('recipeUploadBtn')?.addEventListener('click', ()=>{
+    const textarea = $('recipeJson')
+    const message = $('recipeMessage')
+    message.textContent = ''
+    try {
+        const newRecipes = JSON.parse(textarea.value)
+        // Simple check to ensure it's a map of recipes
+        if(typeof newRecipes !== 'object' || Array.isArray(newRecipes)){
+            message.textContent = 'Error: Input must be a JSON object of recipes (e.g. {"Recipe A": {"item1": 5}}).'
+            return
+        }
+        
+        // Merge new recipes with existing ones
+        recipes = { ...recipes, ...newRecipes }
+        
+        populateRecipeSelect()
+        message.textContent = `Successfully added/updated ${Object.keys(newRecipes).length} recipe(s).`
+        textarea.value = '' // Clear textarea on success
+
+    } catch (e) {
+        message.textContent = 'Error: Invalid JSON format.'
+        console.error(e)
+    }
+})
+
+$('recipeSelect')?.addEventListener('change', (e)=>{
+    const recipeName = e.target.value
+    renderShoppingList(recipeName)
+    // Optional: Render prep list/ingredients (simple list)
+    const prepList = $('prepList')
+    prepList.innerHTML = ''
+    const recipe = recipes[recipeName]
+    if(recipe){
+        Object.entries(recipe).forEach(([item, qty]) => {
+            const li = document.createElement('li')
+            li.textContent = `${item}: ${qty}`
+            prepList.appendChild(li)
+        })
+    } else {
+        prepList.textContent = 'Select a recipe to see its required ingredients.'
+    }
+})
+
 
 // --- Transfer ---
 $('transferBtn')?.addEventListener('click', async ()=>{
@@ -123,6 +212,8 @@ $('transferBtn')?.addEventListener('click', async ()=>{
     await addStock(from, item, -qty)
     $('transferMessage').textContent = `Transferred ${qty} ${item} from ${locationLabel(from)} to ${locationLabel(to)}`
     $('transferItem').value=''; $('transferQty').value=''
+    // Re-render shopping list if a recipe is selected
+    renderShoppingList($('recipeSelect').value)
 })
 
 // --- Store Room Add ---
@@ -132,10 +223,15 @@ $('srAdd')?.addEventListener('click', async ()=>{
     if(!item || isNaN(qty)){ alert('Enter item and qty'); return }
     await addStock('storeRoom', item, qty)
     $('srItem').value=''; $('srQty').value=''
+    // Re-render shopping list if a recipe is selected
+    renderShoppingList($('recipeSelect').value)
 })
 
 // --- On load ---
 populateTransferOptions()
+// Must run populateRecipeSelect after any potential recipe data fetching if you stored them in Supabase
+// For now, it runs with an empty 'recipes' object and will be populated manually.
+populateRecipeSelect() 
 fetchStock()
 </script>
 </head>
@@ -143,30 +239,52 @@ fetchStock()
 <div class="max-w-2xl mx-auto">
 <h1 class="text-2xl sm:text-3xl font-bold mb-4 text-center">Kitchen Stock Manager</h1>
 
-<!-- Tabs -->
 <div class="flex flex-wrap gap-2 justify-center mb-4">
 <button class="tab-btn px-3 py-2 bg-indigo-600 text-white rounded text-sm sm:text-base" data-target="storeRoom">Store Room</button>
+<button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="recipes">Recipes</button>
 <button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="frail">Kitchen 1</button>
 <button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="catering">Kitchen 2</button>
 <button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="kefi">Kitchen 3</button>
 <button class="tab-btn px-3 py-2 bg-gray-200 rounded text-sm sm:text-base" data-target="frailFoh">Kitchen 4</button>
 </div>
 
-<!-- Pages -->
 <div id="content">
 
-<!-- Store Room -->
+<div id="recipes" class="page hidden bg-white p-4 rounded shadow">
+<h2 class="font-semibold mb-2 text-lg sm:text-xl">Recipe Management</h2>
+
+<h3 class="font-semibold mt-2">Add/Update Recipes (JSON Format)</h3>
+<p class="text-xs text-gray-500 mb-2">
+    Format: {"Recipe Name 1": {"item name A": 5, "item name B": 2}, "Recipe Name 2": {...}}
+</p>
+<textarea id="recipeJson" rows="5" placeholder='Paste your recipes here...' class="p-2 border rounded w-full mb-2"></textarea>
+<button id="recipeUploadBtn" class="bg-purple-600 text-white px-4 py-2 rounded w-full">Add/Update Recipes</button>
+<div id="recipeMessage" class="text-green-600 text-sm mt-2"></div>
+
+<h3 class="font-semibold mt-4">Generate Lists</h3>
+<select id="recipeSelect" class="p-2 border rounded w-full mb-4"></select>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div>
+        <h4 class="font-bold text-md">1. Prep/Required Items List:</h4>
+        <ul id="prepList" class="list-disc pl-6 max-h-48 overflow-auto"></ul>
+    </div>
+    <div>
+        <h4 class="font-bold text-md text-red-600">2. Shopping List (Deficit):</h4>
+        <ul id="shoppingList" class="list-disc pl-6 max-h-48 overflow-auto text-red-600"></ul>
+    </div>
+</div>
+
+</div>
 <div id="storeRoom" class="page bg-white p-4 rounded shadow">
 <h2 class="font-semibold mb-2 text-lg sm:text-xl">Store Room</h2>
 
-<!-- Add Item -->
 <div class="flex flex-col sm:flex-row gap-2 mb-2">
 <input id="srItem" placeholder="Item" class="p-2 border rounded flex-1">
 <input id="srQty" type="number" placeholder="Qty" class="p-2 border w-full sm:w-24">
 <button id="srAdd" class="bg-green-600 text-white px-4 py-2 rounded mt-2 sm:mt-0">Add Item</button>
 </div>
 
-<!-- Transfer Stock -->
 <h3 class="font-semibold mt-4">Transfer Stock</h3>
 <div class="flex flex-col sm:flex-row gap-2 mb-2">
 <select id="transferFrom" class="p-2 border rounded flex-1"></select>
@@ -179,7 +297,6 @@ fetchStock()
 </div>
 <div id="transferMessage" class="text-red-600 text-sm mb-2"></div>
 
-<!-- Stock List -->
 <h3 class="font-semibold mt-2">Stock:</h3>
 <ul id="srList" class="list-disc pl-6 max-h-48 overflow-auto"></ul>
 
@@ -187,7 +304,6 @@ fetchStock()
 <ul id="lowStockList" class="list-disc pl-6 text-red-600"></ul>
 </div>
 
-<!-- Kitchens -->
 <div id="frail" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 1 — Frail</h2><ul id="frailStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
 <div id="catering" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 2 — Catering</h2><ul id="cateringStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
 <div id="kefi" class="page hidden bg-white p-4 rounded shadow"><h2 class="text-lg sm:text-xl">Kitchen 3 — Kefi</h2><ul id="kefiStock" class="list-disc pl-6 max-h-48 overflow-auto"></ul></div>
