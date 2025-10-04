@@ -1,1 +1,88 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Firebase Kitchen Test</title>
+</head>
+<body>
+  <h1>🍲 Kitchen Stock Test Page</h1>
+  
+  <div id="firebase-status" style="padding:10px; background:#eee; margin:10px; border:1px solid #ccc; margin-bottom:20px;">
+    Checking Firebase connection...
+  </div>
+
+  <div>
+    <button id="addTest">➕ Add Test Item</button>
+    <button id="getTest">📦 Get Test Item</button>
+  </div>
+
+  <pre id="output" style="padding:10px; background:#fafafa; border:1px solid #ccc; margin-top:10px;"></pre>
+
+  <!-- Firebase Setup -->
+  <script type="module">
+    // Import Firebase SDKs
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-app.js";
+    import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.3.0/firebase-firestore.js";
+
+    // ✅ Your Firebase Config
+    const firebaseConfig = {
+      apiKey: "AIzaSyDywp4wU8oiDypiQ5OydSfQuyx8xS2BerQ",
+      authDomain: "kitchen-stock-44799.firebaseapp.com",
+      projectId: "kitchen-stock-44799",
+      storageBucket: "kitchen-stock-44799.appspot.com",
+      messagingSenderId: "320520731433",
+      appId: "1:320520731433:web:a69d9bc6fc1cb3959f5538",
+      measurementId: "G-11Q1S857RR"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // 🔍 Test Firebase connection immediately
+    async function testFirebase() {
+      try {
+        await setDoc(doc(db, "test", "hello"), { msg: "Firebase works!" });
+        const snap = await getDoc(doc(db, "test", "hello"));
+        document.getElementById("firebase-status").innerText =
+          "✅ Firebase Connected: " + JSON.stringify(snap.data());
+      } catch (err) {
+        document.getElementById("firebase-status").innerText =
+          "❌ Firebase Error: " + err.message;
+      }
+    }
+    testFirebase();
+
+    // ➕ Add Test Item
+    async function addTest() {
+      try {
+        await setDoc(doc(db, "storeRoom", "sugar"), { name: "Sugar", qty: 2 });
+        document.getElementById("output").innerText = "✅ Added Sugar (qty 2)";
+      } catch (err) {
+        document.getElementById("output").innerText = "❌ Error adding: " + err.message;
+      }
+    }
+
+    // 📦 Get Test Item
+    async function getTest() {
+      try {
+        const snap = await getDoc(doc(db, "storeRoom", "sugar"));
+        if (snap.exists()) {
+          document.getElementById("output").innerText =
+            "📦 Store Room Item: " + JSON.stringify(snap.data());
+        } else {
+          document.getElementById("output").innerText = "⚠️ No Sugar found in storeRoom!";
+        }
+      } catch (err) {
+        document.getElementById("output").innerText = "❌ Error reading: " + err.message;
+      }
+    }
+
+    // Button events
+    document.getElementById("addTest").addEventListener("click", addTest);
+    document.getElementById("getTest").addEventListener("click", getTest);
+  </script>
+</body>
+</html>
