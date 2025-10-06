@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Professional Kitchen Stock Manager — Mobile</title>
+<title>Professional Kitchen Stock Manager — Staff Login</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
     /* Custom CSS to override/extend Tailwind for a more polished look */
@@ -82,17 +82,22 @@
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-// --- Supabase config ---
-const supabaseUrl = 'https://dkblxerbnokaeavwnlsu.supabase.co'
-const supabaseKey = 'YOUR_ANON_KEY_HERE'  // <-- replace with your Supabase anon key
-const supabase = createClient(supabaseUrl, supabaseKey)
+// --- Supabase config (UPDATED FOR AUTHENTICATION) ---
+// NOTE: Use your actual project URL here.
+const supabaseUrl = 'https://mrkgwpzisaqpxxvahquo.supabase.co' 
+// The Anon Key is NO LONGER USED here. Access is restricted to authenticated users.
+const supabase = createClient(supabaseUrl, null, {
+    auth: {
+        persistSession: true,
+        storageKey: 'supabase-stock-app',
+    }
+})
 
 // --- Locations ---
 const LOCATIONS = ['storeRoom','frail','catering','kefi','frailFoh']
 
 // --- In-memory data ---
 let stock = { storeRoom: {}, frail: {}, catering: {}, kefi: {}, frailFoh: {} }
-// NOTE: Recipe structure now includes a 'servings' key for base calculation
 let recipes = {} 
 
 // --- Helper ---
@@ -108,7 +113,7 @@ function locationLabel(id){
     }
 }
 
-// --- Recipe Parsing Function (UPDATED) ---
+// --- Recipe Parsing Function (omitted for brevity) ---
 function parseSimpleRecipe(text){
     const ingredientList = {}
     const lines = text.split('\n').filter(line => line.trim() !== '')
@@ -129,7 +134,7 @@ function parseSimpleRecipe(text){
 }
 
 
-// --- UI setup ---
+// --- UI setup (omitted for brevity) ---
 function populateTransferOptions(){
     const from = $('transferFrom')
     const to = $('transferTo')
@@ -158,9 +163,10 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
     })
 })
 
-// --- Supabase functions (omitted for brevity, they remain the same) ---
+// --- Supabase functions (omitted for brevity) ---
 async function fetchStock(){
     for(const loc of LOCATIONS){
+        // This will only work if the user is authenticated (RLS policy required)
         const { data, error } = await supabase.from('stock').select('*').eq('location', loc)
         if(error) console.error(error)
         stock[loc] = {}
@@ -181,7 +187,7 @@ async function addStock(location, item, qty){
     renderLowStock()
 }
 
-// --- Rendering (omitted for brevity, they remain the same) ---
+// --- Rendering (omitted for brevity) ---
 function renderStockUI(location){
     const mapping = { storeRoom:'srList', frail:'frailStock', catering:'cateringStock', kefi:'kefiStock', frailFoh:'frailFohStock' }
     const ul = $(mapping[location])
@@ -213,7 +219,7 @@ function renderLowStock(){
     }
 }
 
-// --- Core Scaling Logic (UPDATED) ---
+// --- Core Scaling Logic (omitted for brevity) ---
 function renderLists(recipeName){
     const prepList = $('prepList')
     const shoppingList = $('shoppingList')
@@ -221,7 +227,7 @@ function renderLists(recipeName){
     shoppingList.innerHTML = '';
     
     const recipe = recipes[recipeName]
-    const targetServings = Number($('targetServings').value) || 1; // Default to 1 if empty/invalid
+    const targetServings = Number($('targetServings').value) || 1; 
 
     if (!recipe) {
         prepList.textContent = 'Select a recipe to see its required ingredients.';
@@ -245,7 +251,7 @@ function renderLists(recipeName){
         
         // Add to Prep List UI
         const prepLi = document.createElement('li')
-        prepLi.textContent = `${item}: ${scaledQty.toFixed(1)}` // .toFixed(1) for cleaner display
+        prepLi.textContent = `${item}: ${scaledQty.toFixed(1)}`
         prepList.appendChild(prepLi)
 
         // 2. Calculate Shopping Deficit
@@ -273,7 +279,7 @@ function renderLists(recipeName){
 }
 
 
-// --- Recipe Management Handlers (UPDATED) ---
+// --- Recipe Management Handlers (omitted for brevity) ---
 $('simpleRecipeUploadBtn')?.addEventListener('click', ()=>{
     const name = $('simpleRecipeName').value.trim()
     const text = $('simpleRecipeTextarea').value.trim()
@@ -295,7 +301,6 @@ $('simpleRecipeUploadBtn')?.addEventListener('click', ()=>{
         return
     }
 
-    // Store the recipe with its base serving size
     recipes[name] = {
         baseServings: baseServings,
         ingredients: newRecipeItems
@@ -320,7 +325,7 @@ $('targetServings')?.addEventListener('input', (e)=>{
 })
 
 
-// --- Transfer (omitted for brevity, remains the same) ---
+// --- Transfer (omitted for brevity) ---
 $('transferBtn')?.addEventListener('click', async ()=>{
     const from = $('transferFrom').value
     const to = $('transferTo').value
@@ -338,7 +343,7 @@ $('transferBtn')?.addEventListener('click', async ()=>{
     renderLists($('recipeSelect').value)
 })
 
-// --- Store Room Add (omitted for brevity, remains the same) ---
+// --- Store Room Add (omitted for brevity) ---
 $('srAdd')?.addEventListener('click', async ()=>{
     const item = $('srItem').value.trim()
     const qty = Number($('srQty').value)
@@ -348,10 +353,61 @@ $('srAdd')?.addEventListener('click', async ()=>{
     renderLists($('recipeSelect').value)
 })
 
-// --- On load ---
-populateTransferOptions()
-populateRecipeSelect() 
-fetchStock()
+// --- AUTHENTICATION LOGIC (NEW) ---
+const authPage = $('auth')
+const mainContent = $('content')
+const authMessage = $('authMessage')
+
+async function handleLogin() {
+    const email = $('emailInput').value.trim()
+    const password = $('passwordInput').value
+
+    if(!email || !password) {
+        authMessage.textContent = 'Please enter both email and password.'
+        return
+    }
+
+    authMessage.textContent = 'Signing in...'
+    authMessage.classList.remove('text-red-600')
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (error) {
+        authMessage.textContent = 'Error: ' + error.message
+        authMessage.classList.add('text-red-600')
+        console.error(error)
+    } else {
+        // Success
+        authMessage.textContent = 'Login successful!'
+        checkSession() 
+    }
+}
+
+async function checkSession() {
+    const { data: { session } } = await supabase.auth.getSession()
+
+    if (session) {
+        // User is logged in, show the app
+        authPage.classList.add('hidden')
+        mainContent.classList.remove('hidden')
+        // Only load data after authentication
+        populateTransferOptions()
+        populateRecipeSelect() 
+        fetchStock()
+    } else {
+        // No user session, show login
+        mainContent.classList.add('hidden')
+        authPage.classList.remove('hidden')
+    }
+}
+
+// Bind login button
+$('signInBtn')?.addEventListener('click', handleLogin)
+
+
+// --- On load (UPDATED to check session first) ---
+checkSession()
+
 </script>
 </head>
 <body class="bg-gray-100 p-2 min-h-screen">
@@ -367,7 +423,7 @@ fetchStock()
 <button class="tab-btn px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-base" data-target="frailFoh">Kitchen 4</button>
 </div>
 
-<div id="content">
+<div id="content" class="hidden">
 
 <div id="recipes" class="page hidden">
 <h2 class="font-bold mb-4 text-xl sm:text-2xl">Recipe Management</h2>
@@ -449,6 +505,19 @@ class="p-2 border rounded-md w-full mb-3 focus:ring-2 focus:ring-blue-300 focus:
 <div id="frailFoh" class="page hidden"><h2 class="font-bold text-xl sm:text-2xl mb-4">Kitchen 4 — Frail FOH</h2><ul id="frailFohStock" class="list-disc pl-6 max-h-60 overflow-y-auto bg-gray-50 p-3 rounded-md border border-gray-200"></ul></div>
 
 </div>
+
+<div id="auth" class="page flex flex-col items-center justify-center p-6" style="height: 80vh;">
+    <h2 class="font-bold text-3xl mb-6 text-gray-800">Staff Login Required</h2>
+    <div class="w-full max-w-sm page">
+        <input id="emailInput" type="email" placeholder="Staff Email" class="mb-3 w-full" required>
+        <input id="passwordInput" type="password" placeholder="Password" class="mb-4 w-full" required>
+        <button id="signInBtn" class="btn-primary w-full font-semibold">Sign In</button>
+        <div id="authMessage" class="text-red-600 text-sm mt-3 font-medium text-center"></div>
+    </div>
+    <p class="text-sm text-gray-500 mt-4">This application requires a registered staff account.</p>
+</div>
+
+
 </div>
 </body>
 </html>
